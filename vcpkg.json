@@ -3,5 +3,12 @@
         "name": "dfs",
         "description": "A simple distributed file system",
         "version": "1.0.0",
-        "dependencies": []
+        "dependencies": [
+                "cpp-httplib",
+                "nlohmann-json",
+                {
+                        "name": "stduuid",
+                        "features": ["system-gen"]
+                }
+        ]
 }
