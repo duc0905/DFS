@@ -16,3 +16,4 @@ set(Agent_SRC_FILES
 )
 add_executable(Agent ${Agent_SRC_FILES})
 target_link_libraries(Agent PRIVATE httplib::httplib)
+target_link_libraries(Agent PRIVATE nlohmann_json::nlohmann_json)

@@ -198,6 +198,10 @@ int main() {
 
   /**
    * Handles reading a file
+   *
+   * body: {
+   *  filepath: string
+   * }
    */
   server.Post("/stat", [](const httplib::Request& req, httplib::Response& res) {
     // Parse the body of the request
