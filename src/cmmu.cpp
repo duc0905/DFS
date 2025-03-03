@@ -1,10 +1,12 @@
 #include <httplib.h>
 #include <stduuid/uuid.h>
 
-#include <cstring>
 #include <exception>
+#include <format>
 #include <iostream>
 #include <nlohmann/json.hpp>
+
+#include "types.hpp"
 
 #ifndef PORT
 #define PORT 4321
@@ -12,96 +14,43 @@
 
 #define PART_SIZE 4
 
-using json = nlohmann::json;
-
-// TODO: Seperate type defs to a header file to reuse in Agent
-
-
-enum class FileType : uint8_t {
-  File,
-  Directory,
-  SymLink,
-  HardLink,
-  Socket,
-  None
-};
-
-struct FileMetadata {
-  struct Partition {
-    uint64_t part_id;      // ID of the partition, unique within a file
-    uint64_t node_id;      // ID of the node containing the partition
-    std::string filepath;  // Relative filepath on the node
-  };
-
-  std::string filepath;  // Absolute filepath of this DFS
-  uint64_t inode_number;
-  FileType filetype;
-  uint64_t size;  // In bytes
-
-  uint64_t uid;
-  uint64_t gid;
-  uint16_t perm_flags;  // oooogggguuuu____
-
-  std::vector<Partition> partitions;
-};
-
-void to_json(json& j, const FileMetadata::Partition& p) {
-  j = json{
-      {"part_id", p.part_id}, {"node_id", p.node_id}, {"filepath", p.filepath}};
-}
-
-void from_json(const json& j, FileMetadata::Partition& p) {
-  j.at("part_id").get_to(p.part_id);
-  j.at("node_id").get_to(p.node_id);
-  j.at("filepath").get_to(p.filepath);
-}
-
-void to_json(json& j, const FileMetadata& m) {
-  j = json{{"filepath", m.filepath},
-           {"inode_number", m.inode_number},
-           {"filetype", m.filetype},
-           {"size", m.size},
-           {"uid", m.uid},
-           {"gid", m.gid},
-           {"perm_flags", m.perm_flags},
-           {"partitions", m.partitions}
-  };
-}
-
-void from_json(const json& j, FileMetadata& m) {
-  j.at("filepath").get_to(m.filepath);
-  j.at("inode_number").get_to(m.inode_number);
-  j.at("filetype").get_to(m.filetype);
-  j.at("size").get_to(m.size);
-  j.at("uid").get_to(m.uid);
-  j.at("gid").get_to(m.gid);
-  j.at("perm_flags").get_to(m.perm_flags);
-  j.at("partitions").get_to(m.partitions);
-}
-
-struct User {
-  uint64_t uid;
-};
-
-class FileDNEException : public std::exception {
+class Agent {
  public:
-  // TODO: do something with the filepath
-  FileDNEException(const std::string& filepath) : m_filepath(filepath) {}
-  const char* what() const noexcept override { return "File does not exist"; }
+  Agent(uint16_t id, std::string address, uint16_t port)
+      : m_id(id),
+        m_address(address),
+        m_port(port),
+        m_conn(httplib::Client(address, port)) {}
 
-  std::string m_filepath;
-};
-
-class FileExistsException : public std::exception {
  public:
-  // TODO: do something with the filepath
-  FileExistsException(const std::string& filepath) : m_filepath(filepath) {}
-  const char* what() const noexcept override { return "File exists"; }
-
-  std::string m_filepath;
+  uint16_t m_id;
+  std::string m_address;
+  uint16_t m_port;
+  httplib::Client m_conn;
 };
 
 std::vector<FileMetadata> db;
+std::vector<Agent> agents;
+
+uint16_t add_agent(std::string address, uint16_t port) {
+  uint16_t id;
+  if (agents.size() == 0) {
+    id = 1;
+  } else {
+    id = agents.back().m_id + 1;
+  }
+
+  agents.push_back({id, address, port});
+  return id;
+}
+
+uint16_t find_agent(std::string address, uint16_t port) {
+  for (auto& a : agents) {
+    if (a.m_address == address && a.m_port == port) return a.m_id;
+  }
+
+  return 0;
+}
 
 /**
  * Get file metadata
@@ -119,12 +68,25 @@ FileMetadata get_file(const User& user, const std::string& filepath) {
  */
 FileMetadata::Partition create_partition(const uint64_t& part_id,
                                          const std::string& content) {
+  static uint16_t aidx = 1;
   FileMetadata::Partition part;
+
+  aidx = (aidx + 1) % agents.size();
+  Agent& a = agents[aidx];
+
   part.filepath = uuids::to_string(uuids::uuid_system_generator{}());
   part.part_id = part_id;
-  part.node_id = 0;  // TODO: randomly choose a node
+  part.agent_id = a.m_id;
 
-  // TODO: Push data to that node
+  // Push data to that node
+  httplib::MultipartFormDataItems items = {
+      {"name", content, part.filepath, "application/octet-stream"}};
+  auto res = a.m_conn.Post("/internal/write", items);
+
+  if (res->status != 201) {
+    throw std::runtime_error(std::format(
+        "Failed to create partition %d on agent %d\n", part_id, a.m_id));
+  }
 
   return part;
 }
@@ -141,7 +103,7 @@ FileMetadata create_file(const User& user, const std::string& filepath) {
     FileMetadata newfile;
     newfile.filepath = filepath;
     if (db.size() > 0) {
-      newfile.inode_number = db.end()->inode_number + 1;
+      newfile.inode_number = db.back().inode_number + 1;
     } else {
       newfile.inode_number = 1;
     }
@@ -177,9 +139,7 @@ FileMetadata write_file(const User& user, const std::string& filepath,
   uint64_t offset = 0;
   uint64_t count = 0;
   while (offset < n) {
-    uint size = (PART_SIZE < n - offset)
-                    ? PART_SIZE
-                    : (n - offset);
+    uint size = (PART_SIZE < n - offset) ? PART_SIZE : (n - offset);
     memset(buffer, 0, PART_SIZE);
     memcpy(buffer, &content[offset], size);
     auto part = create_partition(count++, buffer);
@@ -244,6 +204,21 @@ int main() {
           return;
         }
 
+        // {
+        //   for (auto& file : req.files) {
+        //     std::cerr << "Name: " << file.second.name << std::endl;
+        //     std::cerr << "File Name: " << file.second.filename << std::endl;
+        //     std::cerr << "Content type: " << file.second.content_type <<
+        //     std::endl; std::cerr << "Content: " << file.second.content <<
+        //     std::endl;
+        //   }
+        //
+        //   std::cerr << "====================" << std::endl;
+        //   res.status = httplib::StatusCode::Created_201;
+        //   res.set_content("Yay", "text/plain");
+        //   return;
+        // }
+
         // name: the path for our fs
         // filename: original name of the file
         // content_type: content type
@@ -257,10 +232,78 @@ int main() {
           res.status = httplib::StatusCode::Created_201;
           res.set_content(s_file_metadata, "application/json");
         } catch (const std::exception& e) {
-          std::cerr << "Error while jsonifying file metadata: " << e.what() << std::endl;
+          std::cerr << "Error while jsonifying file metadata: " << e.what()
+                    << std::endl;
         }
       });
 
+  /**
+   * Register agent
+   *
+   * Agents call this route to register to the cluster of this CMMU
+   *
+   * Body:
+   *  - port: int
+   */
+  server.Post(
+      "/register", [](const httplib::Request& req, httplib::Response& res) {
+        json j_body;
+
+        try {
+          j_body = json::parse(req.body);
+        } catch (const std::exception& e) {
+          res.status = httplib::StatusCode::BadRequest_400;
+          res.set_content(e.what(), "text/plain");
+          return;
+        }
+
+        if (j_body.find("port") == j_body.end()) {
+          res.status = httplib::StatusCode::BadRequest_400;
+          res.set_content("Port is missing from the body", "text/plain");
+          return;
+        }
+
+        uint16_t agent_port = j_body["port"];
+
+        if (find_agent(req.remote_addr, agent_port) == 0) {
+          add_agent(req.remote_addr, agent_port);
+          res.status = httplib::StatusCode::Created_201;
+          res.set_content("Registered", "text/plain");
+        } else {
+          res.status = httplib::StatusCode::Created_201;
+          res.set_content("Welcome back", "text/plain");
+        }
+      });
+
+  /**
+   * Get all agents
+   *
+   * NOTE: Only be used for debugging
+   */
+  server.Post("/agents",
+              [](const httplib::Request& req, httplib::Response& res) {
+                try {
+                  json j_res = json::array();
+                  for (auto& a : agents) {
+                    json agent = json::object();
+                    agent["id"] = a.m_id;
+                    agent["address"] = a.m_address;
+                    agent["port"] = a.m_port;
+                    j_res.push_back(agent);
+                  }
+
+                  res.status = httplib::StatusCode::OK_200;
+                  res.set_content(j_res.dump(), "application/json");
+
+                } catch (const std::exception& e) {
+                  std::cerr << "Error: " << e.what() << std::endl;
+                  res.status = httplib::StatusCode::InternalServerError_500;
+                  res.set_content(e.what(), "text/plain");
+                }
+              });
+
+  // TODO: Add a default exception handler for server
+  //
   std::cerr << "Server is listening at 0.0.0.0:" << PORT << std::endl;
   server.listen("0.0.0.0", PORT);
 
