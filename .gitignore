@@ -1,4 +1,5 @@
 .cache/
 build/
+data/
 
 compile_commands.json

@@ -1,7 +1,9 @@
 #include <httplib.h>
 
 #include <cstdlib>
+#include <exception>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 
 #include "types.hpp"
@@ -15,10 +17,12 @@ using json = nlohmann::json;
 int main() {
   std::cerr << "Hello from agent" << std::endl;
 
+  // TODO: Use arguments for addresses and ports
   std::string home_dir = getenv("HOME");
   std::filesystem::path datapath(home_dir + "/DFS/data");
-  httplib::Server server;
+
   httplib::Client cmmu("localhost:4321");
+  httplib::Server server;
 
   /**
    * NOTE: Should only be called by CMMU
@@ -26,7 +30,7 @@ int main() {
    * Store a partition on the current node
    */
   server.Post("/internal/write", [&datapath](const httplib::Request& req,
-                                    httplib::Response& res) {
+                                             httplib::Response& res) {
     if (req.files.size() != 1) {
       res.set_content("This route takes exactly 1 file", "text/plain");
       res.status = httplib::StatusCode::BadRequest_400;
@@ -35,7 +39,28 @@ int main() {
 
     auto file = req.files.begin()->second;
     auto path = datapath / file.filename;
-    std::cerr << "Saving partition to " << std::filesystem::absolute(path) << std::endl;
+
+    try {
+      std::ofstream f(path, std::ios::binary);
+      if (!f) {
+        std::cerr << "File open failed" << std::endl;
+
+        res.set_content("Failed", "text/plain");
+        res.status = httplib::StatusCode::InternalServerError_500;
+        return;
+      }
+
+      std::cerr << "Saving partition to " << path << std::endl;
+      std::cerr << "Content: " << file.content << std::endl;
+
+      f << file.content;
+    } catch (const std::exception& e) {
+      std::cerr << "Error while writing content to file: " << e.what()
+                << std::endl;
+      res.set_content(e.what(), "text/plain");
+      res.status = httplib::StatusCode::InternalServerError_500;
+      return;
+    }
 
     res.set_content("Received", "text/plain");
     res.status = httplib::StatusCode::Created_201;
@@ -46,8 +71,6 @@ int main() {
    */
   server.Post(
       "/write", [&cmmu](const httplib::Request& req, httplib::Response& res) {
-        // TODO: Call CMMU/write
-        //
         // name, content, filename, content-type
         auto size = req.files.size();
 
@@ -75,6 +98,113 @@ int main() {
           res.status = httplib::StatusCode::InternalServerError_500;
         }
       });
+
+  server.Post("/internal/read", [&datapath](const httplib::Request& req,
+                                            httplib::Response& res) {
+    json j_body;
+    std::string filepath;
+    try {
+      j_body = json::parse(req.body);
+    } catch (const std::exception& e) {
+      std::cerr << "Error while parsing JSON: " << e.what() << std::endl;
+      res.set_content(e.what(), "text/plain");
+      res.status = httplib::StatusCode::BadRequest_400;
+      return;
+    }
+
+    // Validating request
+    if (!j_body.contains("filepath")) {
+      res.set_content("Request does not contain filepath", "text/plain");
+      res.status = httplib::StatusCode::BadRequest_400;
+      return;
+    }
+
+    filepath = j_body["filepath"];
+    auto path = datapath / filepath;
+
+    try {
+      std::ifstream f(path, std::ios::binary);
+      if (!f) {
+        res.set_content("File/partition does not exist", "text/plain");
+        res.status = httplib::StatusCode::NotFound_404;
+      } else {
+        std::string content;
+        f >> content;
+        res.status = httplib::StatusCode::OK_200;
+        res.set_content(content, "application/octet-stream");
+      }
+    } catch (const std::exception& e) {
+      std::cerr << "Error while reading file: " << e.what() << std::endl;
+      res.set_content(e.what(), "text/plain");
+      res.status = httplib::StatusCode::InternalServerError_500;
+    }
+  });
+
+  server.Post("/read", [&datapath, &cmmu](const httplib::Request& req,
+                                          httplib::Response& res) {
+    json j_body;
+    std::string filepath;
+    try {
+      j_body = json::parse(req.body);
+    } catch (const std::exception& e) {
+      std::cerr << "Error while parsing JSON: " << e.what() << std::endl;
+      res.set_content(e.what(), "text/plain");
+      res.status = httplib::StatusCode::BadRequest_400;
+      return;
+    }
+
+    // Validating request
+    if (!j_body.contains("filepath")) {
+      res.set_content("Request does not contain filepath", "text/plain");
+      res.status = httplib::StatusCode::BadRequest_400;
+      return;
+    }
+
+    filepath = j_body["filepath"];
+
+    // Get file metadata
+    {
+      json j_body = json::object();
+      j_body["filepath"] = filepath;
+      auto result = cmmu.Post("/", j_body.dump(), "application/json");
+
+      if (!result) {
+        res.set_content("Failed to get metadata", "text/plain");
+        res.status = httplib::StatusCode::InternalServerError_500;
+        return;
+      }
+
+      if (result->status != 200) {
+        res.set_content(result->body, "text/plain");
+        res.status = httplib::StatusCode::InternalServerError_500;
+        return;
+      }
+
+      json j_metadata;
+      try {
+        j_metadata = json::parse(result->body);
+      } catch (const std::exception& e) {
+        std::cerr << "Error while parsing JSON: " << e.what() << std::endl;
+        res.set_content(e.what(), "text/plain");
+        res.status = httplib::StatusCode::InternalServerError_500;
+        return;
+      }
+
+      FileMetadata metadata;
+      try {
+        metadata = j_metadata;
+      } catch (const std::exception& e) {
+        std::cerr << "Error while casting json to FileMetadata: " << e.what()
+                  << std::endl;
+        res.set_content(e.what(), "text/plain");
+        res.status = httplib::StatusCode::InternalServerError_500;
+        return;
+      }
+
+      // TODO: Call to agents to get partitions
+      metadata.partitions[0].agent_id;
+    }
+  });
 
   /**
    * Called by CLI/user to read a file in our system
@@ -129,6 +259,23 @@ int main() {
   });
 
   // TODO: Add a default exception handler for server
+
+  // NOTE: Call register API on CMMU
+
+  {
+    json j_body = json::object();
+    j_body["port"] = PORT;
+    auto result = cmmu.Post("/register", j_body.dump(), "application/json");
+    if (result->status != 200 && result->status != 201) {
+      std::cerr << "Failed to register to CMMU: " << result.error()
+                << std::endl;
+      std::cerr << "Status: " << result->status << std::endl;
+      return 1;
+    } else {
+      std::cerr << "Successfully registered to CMMU" << std::endl;
+      std::cerr << "Body: " << result->body << std::endl;
+    }
+  }
 
   std::cerr << "Agent is listening at 0.0.0.0:" << PORT << std::endl;
   server.listen("0.0.0.0", PORT);

@@ -8,9 +8,9 @@ A simple distributed filesystem.
 ### Requirements
 
 - CMake >= 2.28.0
-- Ninja >= 1.3
 - gcc
 - git
+- Ninja >= 1.3 (optional)
 
 ### Build & run
 
@@ -19,7 +19,7 @@ Only support Linux-based OS.
 *Setting up the environment*:
 - If you did not clone the repo recursively, run:
 ```bash
-# TODO
+git clone git@github.com:duc0905/DFS.git --recurse-submodules
 ```
 to clone vcpkg and other dependencies (if there is).
 
@@ -38,4 +38,4 @@ Running targets:
 ```
 ./build/default/<target>
 ```
-where `<target` is one of the targets above
+where `<target>` is one of the targets above

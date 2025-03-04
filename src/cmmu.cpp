@@ -113,7 +113,6 @@ FileMetadata create_file(const User& user, const std::string& filepath) {
     newfile.uid = user.uid;
     newfile.gid = 0;
     newfile.perm_flags = 0x7770;
-    newfile.partitions.push_back(create_partition(0, ""));
     return newfile;
   }
 }
@@ -182,7 +181,13 @@ int main() {
       json j_metadata = metadata;
       res.set_content(j_metadata, "application/json");
       res.status = httplib::StatusCode::OK_200;
-    } catch (const std::exception& e) {  // TODO: Handle different exceptions
+    } catch(const FileDNEException& e) {
+      std::cerr << "Error while getting file: " << e.what() << std::endl;
+      res.status = httplib::StatusCode::NotFound_404;
+      res.set_content(e.what(), "text/plain");
+      return;
+    }
+    catch (const std::exception& e) {  // TODO: Handle different exceptions
       std::cerr << "Error while getting file: " << e.what() << std::endl;
       res.status = httplib::StatusCode::BadRequest_400;
       res.set_content(e.what(), "text/plain");
@@ -303,7 +308,6 @@ int main() {
               });
 
   // TODO: Add a default exception handler for server
-  //
   std::cerr << "Server is listening at 0.0.0.0:" << PORT << std::endl;
   server.listen("0.0.0.0", PORT);
 
