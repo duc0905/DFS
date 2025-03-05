@@ -12,22 +12,7 @@
 #define PORT 4321
 #endif  // !PORT
 
-#define PART_SIZE 4
-
-class Agent {
- public:
-  Agent(uint16_t id, std::string address, uint16_t port)
-      : m_id(id),
-        m_address(address),
-        m_port(port),
-        m_conn(httplib::Client(address, port)) {}
-
- public:
-  uint16_t m_id;
-  std::string m_address;
-  uint16_t m_port;
-  httplib::Client m_conn;
-};
+#define PART_SIZE 1024
 
 std::vector<FileMetadata> db;
 std::vector<Agent> agents;
@@ -138,7 +123,7 @@ FileMetadata write_file(const User& user, const std::string& filepath,
   uint64_t offset = 0;
   uint64_t count = 0;
   while (offset < n) {
-    uint size = (PART_SIZE < n - offset) ? PART_SIZE : (n - offset);
+    uint size = (PART_SIZE - 1 < n - offset) ? PART_SIZE - 1 : (n - offset);
     memset(buffer, 0, PART_SIZE);
     memcpy(buffer, &content[offset], size);
     auto part = create_partition(count++, buffer);
@@ -174,20 +159,19 @@ int main() {
     }
 
     try {
-      auto metadata = get_file({0}, body["filepath"]);
+      FileMetadata metadata = get_file({0}, body["filepath"]);
 
       // TODO: Check for permission
 
       json j_metadata = metadata;
-      res.set_content(j_metadata, "application/json");
+      res.set_content(j_metadata.dump(), "application/json");
       res.status = httplib::StatusCode::OK_200;
-    } catch(const FileDNEException& e) {
+    } catch (const FileDNEException& e) {
       std::cerr << "Error while getting file: " << e.what() << std::endl;
       res.status = httplib::StatusCode::NotFound_404;
       res.set_content(e.what(), "text/plain");
       return;
-    }
-    catch (const std::exception& e) {  // TODO: Handle different exceptions
+    } catch (const std::exception& e) {  // TODO: Handle different exceptions
       std::cerr << "Error while getting file: " << e.what() << std::endl;
       res.status = httplib::StatusCode::BadRequest_400;
       res.set_content(e.what(), "text/plain");
@@ -209,27 +193,13 @@ int main() {
           return;
         }
 
-        // {
-        //   for (auto& file : req.files) {
-        //     std::cerr << "Name: " << file.second.name << std::endl;
-        //     std::cerr << "File Name: " << file.second.filename << std::endl;
-        //     std::cerr << "Content type: " << file.second.content_type <<
-        //     std::endl; std::cerr << "Content: " << file.second.content <<
-        //     std::endl;
-        //   }
-        //
-        //   std::cerr << "====================" << std::endl;
-        //   res.status = httplib::StatusCode::Created_201;
-        //   res.set_content("Yay", "text/plain");
-        //   return;
-        // }
-
         // name: the path for our fs
         // filename: original name of the file
         // content_type: content type
         // content: content
         auto& file = req.files.begin()->second;
         // Passing user with uid 0 for now
+        // TODO: Use content receiver instead
         auto file_metadata = write_file({0}, file.name, file.content);
         try {
           json j_file_metadata = file_metadata;
@@ -284,6 +254,7 @@ int main() {
    * Get all agents
    *
    * NOTE: Only be used for debugging
+   * NOTE: Welp, now the agents are using this route to get other agents
    */
   server.Post("/agents",
               [](const httplib::Request& req, httplib::Response& res) {

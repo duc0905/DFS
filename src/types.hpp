@@ -1,5 +1,7 @@
 #pragma once
 
+#include <httplib.h>
+
 #include <cstdint>
 #include <cstring>
 #include <exception>
@@ -7,8 +9,6 @@
 #include <string>
 #include <vector>
 
-// TODO: Seperate type defs to a header file to reuse in Agent
-//
 using json = nlohmann::json;
 
 enum class FileType : uint8_t {
@@ -23,7 +23,7 @@ enum class FileType : uint8_t {
 struct FileMetadata {
   struct Partition {
     uint64_t part_id;      // ID of the partition, unique within a file
-    uint64_t agent_id;      // ID of the node containing the partition
+    uint16_t agent_id;     // ID of the node containing the partition
     std::string filepath;  // filepath on the node
   };
 
@@ -40,8 +40,9 @@ struct FileMetadata {
 };
 
 inline void to_json(json& j, const FileMetadata::Partition& p) {
-  j = json{
-      {"part_id", p.part_id}, {"node_id", p.agent_id}, {"filepath", p.filepath}};
+  j = json{{"part_id", p.part_id},
+           {"node_id", p.agent_id},
+           {"filepath", p.filepath}};
 }
 
 inline void from_json(const json& j, FileMetadata::Partition& p) {
@@ -69,7 +70,18 @@ inline void from_json(const json& j, FileMetadata& m) {
   j.at("uid").get_to(m.uid);
   j.at("gid").get_to(m.gid);
   j.at("perm_flags").get_to(m.perm_flags);
+  // for (auto& j_p : j["partitions"]) {
+  //   try {
+  //     FileMetadata::Partition part = j_p;
+  //     m.partitions.push_back(part);
+  //     std::cerr << "Size: " << m.partitions.size() << std::endl;
+  //   } catch (std::exception& e) {
+  //     std::cerr << "FK ME: " << e.what() << std::endl;
+  //   }
+  // }
+
   j.at("partitions").get_to(m.partitions);
+  std::cerr << "Size: " << m.partitions.size() << std::endl;
 }
 
 struct User {
@@ -92,4 +104,19 @@ class FileExistsException : public std::exception {
   const char* what() const noexcept override { return "File exists"; }
 
   std::string m_filepath;
+};
+
+class Agent {
+ public:
+  Agent(uint16_t id, std::string address, uint16_t port)
+      : m_id(id),
+        m_address(address),
+        m_port(port),
+        m_conn(httplib::Client(address, port)) {}
+
+ public:
+  uint16_t m_id;
+  std::string m_address;
+  uint16_t m_port;
+  httplib::Client m_conn;
 };
