@@ -163,9 +163,7 @@ int main(int argc, char* argv[]) {
 
         auto result = cmmu.Post("/write", item);
         if (result) {
-          // result->status;
-          std::cerr << result->body;
-          res.set_content(result->body, "text/plain");
+          res.set_content(result->body, result->get_header_value("Content-Type"));
           res.status = httplib::StatusCode::Created_201;
         } else {
           std::cerr << "Error while sending to CMMU: " << result.error()

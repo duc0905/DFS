@@ -121,11 +121,12 @@ FileMetadata write_file(const User& user, const std::string& filepath,
   char buffer[part_size];
   uint64_t offset = 0;
   uint64_t count = 0;
+
   while (offset < n) {
     uint size = (part_size - 1 < n - offset) ? part_size - 1 : (n - offset);
     memset(buffer, 0, part_size);
     memcpy(buffer, &content[offset], size);
-    auto part = create_partition(count++, buffer);
+    auto part = create_partition(count++, std::string(content, size));
     offset += size;
     metadata.partitions.push_back(part);
   }
@@ -224,6 +225,8 @@ int main(int argc, char* argv[]) {
                           "text/plain");
           return;
         }
+
+        // TODO: Check if file exist
 
         // name: the path for our fs
         // filename: original name of the file

@@ -7,7 +7,6 @@ set(CMMU_SRC_FILES
 	"cmmu.cpp"
 )
 add_executable(CMMU ${CMMU_SRC_FILES})
-# target_compile_options(CMMU PRIVATE "-g")
 target_link_libraries(CMMU PRIVATE httplib::httplib)
 target_link_libraries(CMMU PRIVATE nlohmann_json::nlohmann_json)
 target_link_libraries(CMMU PRIVATE stduuid)
