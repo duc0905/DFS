@@ -1,5 +1,6 @@
 #include <httplib.h>
 
+#include <argparse/argparse.hpp>
 #include <cstdlib>
 #include <exception>
 #include <filesystem>
@@ -8,10 +9,6 @@
 #include <stdexcept>
 
 #include "types.hpp"
-
-#ifndef PORT
-#define PORT 1234
-#endif
 
 using json = nlohmann::json;
 
@@ -42,14 +39,69 @@ std::vector<Agent> get_agents(httplib::Client& cmmu) {
   }
 }
 
-int main() {
-  std::cerr << "Hello from agent" << std::endl;
+int main(int argc, char* argv[]) {
+  argparse::ArgumentParser program("Agent");
 
-  // TODO: Use arguments for addresses and ports
-  std::string home_dir = getenv("HOME");
-  std::filesystem::path datapath(home_dir + "/DFS/data");
+  program.add_argument("-h", "--host")
+      .help("The host this agent listens to")
+      .default_value<std::string>("0.0.0.0")
+      .nargs(1);
 
-  httplib::Client cmmu("localhost:4321");
+  program.add_argument("-p", "--port")
+      .help("The port this agent listens to")
+      .default_value<uint>(1234)
+      .scan<'u', uint>()
+      .nargs(1);
+
+  program.add_argument("cmmu-host")
+      .help("The address of the CMMU")
+      .required()
+      .nargs(1);
+
+  program.add_argument("cmmu-port")
+      .help("The port the CMMU is listening on")
+      .required()
+      .scan<'u', uint>()
+      .nargs(1);
+
+  program.add_argument("-d", "--directory")
+      .help("The local directory to store the files")
+      .default_value("/tmp/dfs")
+      .nargs(1);
+
+  try {
+    program.parse_args(argc, argv);
+  } catch (const std::exception& e) {
+    std::cerr << e.what() << std::endl;
+    std::cerr << program;
+    return 1;
+  }
+
+  std::string cmmu_host, host;
+  uint cmmu_port, port;
+
+  try {  // Parsing CMMU address
+    cmmu_host = program.get("cmmu-host");
+    cmmu_port = program.get<uint>("cmmu-port");
+  } catch (const std::exception& e) {
+    std::cerr << "Error while parsing CMMU address: " << e.what() << std::endl;
+    return 1;
+  }
+
+  httplib::Client cmmu(cmmu_host, cmmu_port);
+
+  try {  // Parsing agent address
+    host = program.get("-h");
+    port = program.get<uint>("-p");
+  } catch (const std::exception& e) {
+    std::cerr << "Error while parsing Agent address: " << e.what() << std::endl;
+    return 1;
+  }
+
+  std::filesystem::path datapath(program.get("-d"));
+
+  // TODO: Check if the datapath exist and valid
+
   httplib::Server server;
 
   /**
@@ -392,8 +444,15 @@ int main() {
 
   {  // NOTE: Call register API on CMMU
     json j_body = json::object();
-    j_body["port"] = PORT;
+    j_body["port"] = port;
     auto result = cmmu.Post("/register", j_body.dump(), "application/json");
+    if (!result) {
+      std::cerr << "Failed to register to CMMU: CMMU host (TODO FILL THIS WITH "
+                   "ADDRESS) is down"
+                << std::endl;
+      return 1;
+    }
+
     if (result->status != 200 && result->status != 201) {
       std::cerr << "Failed to register to CMMU: " << result.error()
                 << std::endl;
@@ -406,8 +465,8 @@ int main() {
   }
 
   // TODO: Add a default exception handler for server
-  std::cerr << "Agent is listening at 0.0.0.0:" << PORT << std::endl;
-  server.listen("0.0.0.0", PORT);
+  std::cerr << "Agent is listening at " << host << ":" << port << std::endl;
+  server.listen(host, port);
 
   return 0;
 }

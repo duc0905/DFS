@@ -9,6 +9,7 @@
                 {
                         "name": "stduuid",
                         "features": ["system-gen"]
-                }
+                },
+                "argparse"
         ]
 }
