@@ -147,31 +147,31 @@ int main(int argc, char* argv[]) {
   /**
    * Called by CLI/user to write a file to our system
    */
-  server.Post(
-      "/write", [&cmmu](const httplib::Request& req, httplib::Response& res) {
-        // name, content, filename, content-type
-        auto size = req.files.size();
+  server.Post("/write", [&cmmu](const httplib::Request& req,
+                                httplib::Response& res) {
+    // name, content, filename, content-type
+    auto size = req.files.size();
 
-        if (size != 1) {
-          res.status = httplib::StatusCode::BadRequest_400;
-          res.set_content("This API only allow writing to exactly 1 file",
-                          "text/plain");
-          return;
-        }
+    if (size != 1) {
+      res.status = httplib::StatusCode::BadRequest_400;
+      res.set_content("This API only allow writing to exactly 1 file",
+                      "text/plain");
+      return;
+    }
 
-        httplib::MultipartFormDataItems item = {req.files.begin()->second};
+    httplib::MultipartFormDataItems item = {req.files.begin()->second};
 
-        auto result = cmmu.Post("/write", item);
-        if (result) {
-          res.set_content(result->body, result->get_header_value("Content-Type"));
-          res.status = httplib::StatusCode::Created_201;
-        } else {
-          std::cerr << "Error while sending to CMMU: " << result.error()
-                    << std::endl;
-          res.set_content(httplib::to_string(result.error()), "text/plain");
-          res.status = httplib::StatusCode::InternalServerError_500;
-        }
-      });
+    auto result = cmmu.Post("/write", item);
+    if (result) {
+      res.set_content(result->body, result->get_header_value("Content-Type"));
+      res.status = httplib::StatusCode::Created_201;
+    } else {
+      std::cerr << "Error while sending to CMMU: " << result.error()
+                << std::endl;
+      res.set_content(httplib::to_string(result.error()), "text/plain");
+      res.status = httplib::StatusCode::InternalServerError_500;
+    }
+  });
 
   server.Post("/internal/read", [&datapath](const httplib::Request& req,
                                             httplib::Response& res) {
@@ -291,7 +291,6 @@ int main(int argc, char* argv[]) {
       FileMetadata metadata;
       try {
         metadata = j_metadata;
-        std::cerr << "Size2: " << metadata.partitions.size() << std::endl;
       } catch (const std::exception& e) {
         std::cerr << "Error while casting json to FileMetadata: " << e.what()
                   << std::endl;
@@ -314,7 +313,6 @@ int main(int argc, char* argv[]) {
       res.set_chunked_content_provider(
           "application/octet-stream",
           [metadata](size_t offset, httplib::DataSink& sink) {
-            std::cerr << "Fk3 " << metadata.partitions.size() << std::endl;
             for (auto& part : metadata.partitions) {
               json j_body = json::object();
               j_body["filepath"] = part.filepath;

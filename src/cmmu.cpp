@@ -39,7 +39,7 @@ uint16_t find_agent(std::string address, uint16_t port) {
 /**
  * Get file metadata
  */
-FileMetadata get_file(const User& user, const std::string& filepath) {
+FileMetadata& get_file(const User& user, const std::string& filepath) {
   for (auto& file : db) {
     if (file.filepath == filepath) return file;
   }
@@ -78,7 +78,7 @@ FileMetadata::Partition create_partition(const uint64_t& part_id,
 /**
  * Create a blank file
  */
-FileMetadata create_file(const User& user, const std::string& filepath) {
+FileMetadata& create_file(const User& user, const std::string& filepath) {
   try {
     get_file(user, filepath);
     throw FileExistsException(filepath);
@@ -97,11 +97,13 @@ FileMetadata create_file(const User& user, const std::string& filepath) {
     newfile.uid = user.uid;
     newfile.gid = 0;
     newfile.perm_flags = 0x7770;
-    return newfile;
+
+    db.push_back(newfile);
+    return db.back();
   }
 }
 
-FileMetadata get_or_create_file(const User& user,
+FileMetadata& get_or_create_file(const User& user,
                                 const std::string& filepath) noexcept {
   try {
     return get_file(user, filepath);
@@ -112,7 +114,7 @@ FileMetadata get_or_create_file(const User& user,
 
 FileMetadata write_file(const User& user, const std::string& filepath,
                         const std::string& content) {
-  FileMetadata metadata = get_or_create_file(user, filepath);
+  FileMetadata& metadata = get_or_create_file(user, filepath);
   auto n = content.size();
 
   metadata.size = n;
@@ -126,13 +128,13 @@ FileMetadata write_file(const User& user, const std::string& filepath,
     uint size = (part_size - 1 < n - offset) ? part_size - 1 : (n - offset);
     memset(buffer, 0, part_size);
     memcpy(buffer, &content[offset], size);
-    auto part = create_partition(count++, std::string(content, size));
+    auto part = create_partition(count++, std::string(buffer, size));
     offset += size;
     metadata.partitions.push_back(part);
   }
 
-  // TODO: Save to real DB
-  db.push_back(metadata);
+  // TODO: Save to db
+  // We are using vector and reference
 
   return metadata;
 }

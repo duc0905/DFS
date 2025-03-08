@@ -81,7 +81,6 @@ inline void from_json(const json& j, FileMetadata& m) {
   // }
 
   j.at("partitions").get_to(m.partitions);
-  std::cerr << "Size: " << m.partitions.size() << std::endl;
 }
 
 struct User {
