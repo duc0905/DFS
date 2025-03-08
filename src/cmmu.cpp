@@ -1,6 +1,8 @@
+#include <argparse/argparse.hpp>
 #include <httplib.h>
 #include <stduuid/uuid.h>
 
+#include <cstdint>
 #include <exception>
 #include <format>
 #include <iostream>
@@ -8,12 +10,9 @@
 
 #include "types.hpp"
 
-#ifndef PORT
-#define PORT 4321
-#endif  // !PORT
+uint part_size;
 
-#define PART_SIZE 1024
-
+// TODO: Use persistent storage
 std::vector<FileMetadata> db;
 std::vector<Agent> agents;
 
@@ -119,12 +118,12 @@ FileMetadata write_file(const User& user, const std::string& filepath,
   metadata.size = n;
   metadata.partitions.clear();
 
-  char buffer[PART_SIZE];
+  char buffer[part_size];
   uint64_t offset = 0;
   uint64_t count = 0;
   while (offset < n) {
-    uint size = (PART_SIZE - 1 < n - offset) ? PART_SIZE - 1 : (n - offset);
-    memset(buffer, 0, PART_SIZE);
+    uint size = (part_size - 1 < n - offset) ? part_size - 1 : (n - offset);
+    memset(buffer, 0, part_size);
     memcpy(buffer, &content[offset], size);
     auto part = create_partition(count++, buffer);
     offset += size;
@@ -137,7 +136,40 @@ FileMetadata write_file(const User& user, const std::string& filepath,
   return metadata;
 }
 
-int main() {
+int main(int argc, char* argv[]) {
+  argparse::ArgumentParser program("CMMU");
+
+  program.add_description("Centralized Metadata Management Unit for DFS.");
+
+  program.add_argument("-h", "--host")
+      .help("The host this CMMU listens to")
+      .default_value<std::string>("0.0.0.0")
+      .nargs(1);
+
+  program.add_argument("-p", "--port")
+      .help("The port this CMMU listens to")
+      .default_value<uint>((uint)4321)
+      .scan<'u', uint>()
+      .nargs(1);
+
+  program.add_argument("-P", "--part-size")
+      .help("The part size in bytes for v1 write algorithm")
+      .default_value((uint)(1024 * 1024)) // 1MB
+      .scan<'u', uint>()
+      .nargs(1);
+
+  try {
+    program.parse_args(argc, argv);
+  } catch(const std::exception& e) {
+    std::cerr << e.what() << std::endl;
+    std::cerr << program;
+    return 1;
+  }
+
+  std::string host = program.get("-h");
+  uint port = program.get<uint>("-p");
+  part_size = program.get<uint>("-P");
+
   httplib::Server server;
 
   /**
@@ -279,8 +311,8 @@ int main() {
               });
 
   // TODO: Add a default exception handler for server
-  std::cerr << "Server is listening at 0.0.0.0:" << PORT << std::endl;
-  server.listen("0.0.0.0", PORT);
+  std::cerr << "Server is listening at " << host << ":" << port << std::endl;
+  server.listen(host, port);
 
   return 0;
 }
