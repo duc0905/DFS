@@ -60,7 +60,7 @@ if __name__ == "__main__":
 
     try:
         print("Batch benchmarking:")
-        time = bench_batch(24, write, args=(host, port, file[0]))
+        time = bench_batch(20, write, args=(host, port, file[0]))
         # times = np.array(times) / 10e9
         print(f"Time: {time / 10e9}")
         print("============================")

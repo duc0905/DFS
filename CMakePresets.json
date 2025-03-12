@@ -1,8 +1,8 @@
 {
-  "version": 6,
+  "version": 3,
   "cmakeMinimumRequired": {
     "major": 3,
-    "minor": 28,
+    "minor": 22,
     "patch": 0
   },
   "configurePresets": [
@@ -11,7 +11,9 @@
       "displayName": "Default Config",
       "description": "Default configuration",
       "toolchainFile": "modules/vcpkg/scripts/buildsystems/vcpkg.cmake",
-      "binaryDir": "${sourceDir}/build/default"
+      "binaryDir": "${sourceDir}/build/default",
+      "cacheVariables": {
+      }
     },
     {
       "name": "ninja",

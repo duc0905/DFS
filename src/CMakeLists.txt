@@ -11,6 +11,8 @@ target_link_libraries(CMMU PRIVATE httplib::httplib)
 target_link_libraries(CMMU PRIVATE nlohmann_json::nlohmann_json)
 target_link_libraries(CMMU PRIVATE stduuid)
 target_link_libraries(CMMU PRIVATE argparse::argparse)
+# set_property(TARGET CMMU PROPERTY CXX_STANDARD 20)
+message(STATUS "CMAKE_CXX_STANDARD: ${CMAKE_CXX_STANDARD}")
 
 set(Agent_SRC_FILES
 	"agent.cpp"

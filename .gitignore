@@ -1,6 +1,7 @@
 .cache/
 build/
 data/
+scripts/
 
 **/__pycache__/
 

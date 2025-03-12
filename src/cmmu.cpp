@@ -1,10 +1,9 @@
-#include <argparse/argparse.hpp>
 #include <httplib.h>
 #include <stduuid/uuid.h>
 
+#include <argparse/argparse.hpp>
 #include <cstdint>
 #include <exception>
-#include <format>
 #include <iostream>
 #include <nlohmann/json.hpp>
 
@@ -68,8 +67,8 @@ FileMetadata::Partition create_partition(const uint64_t& part_id,
   auto res = a.m_conn.Post("/internal/write", items);
 
   if (res->status != 201) {
-    throw std::runtime_error(std::format(
-        "Failed to create partition %d on agent %d\n", part_id, a.m_id));
+    throw std::runtime_error(std::string(
+        "Failed to create partition ") + std::to_string(part_id) + " on agent " + std::to_string(a.m_id) + '\n');
   }
 
   return part;
@@ -104,7 +103,7 @@ FileMetadata& create_file(const User& user, const std::string& filepath) {
 }
 
 FileMetadata& get_or_create_file(const User& user,
-                                const std::string& filepath) noexcept {
+                                 const std::string& filepath) noexcept {
   try {
     return get_file(user, filepath);
   } catch (const FileDNEException& e) {
@@ -157,13 +156,13 @@ int main(int argc, char* argv[]) {
 
   program.add_argument("-P", "--part-size")
       .help("The part size in bytes for v1 write algorithm")
-      .default_value((uint)(1024 * 1024)) // 1MB
+      .default_value((uint)(1024 * 1024))  // 1MB
       .scan<'u', uint>()
       .nargs(1);
 
   try {
     program.parse_args(argc, argv);
-  } catch(const std::exception& e) {
+  } catch (const std::exception& e) {
     std::cerr << e.what() << std::endl;
     std::cerr << program;
     return 1;
