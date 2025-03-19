@@ -1,16 +1,14 @@
-#!/bin/python3
-
 import argparse
 import requests
 import numpy as np
+import matplotlib.pyplot as plt
 import json
 from common import bench_single, bench_batch
 
-
-def write(addr: str, port: int, file: str):
+def write(addr: str, port: int, file: str, filename: str):
     # print(f"addr: {addr}:{port} | file: {file}")
     res = requests.post(
-        f"http://{addr}:{port}/write", files={file: open(file, "rb")}
+        f"http://{addr}:{port}/write/v2", files={filename: open(file, "rb")}
     )
 
     if res.status_code != 201:
@@ -26,6 +24,8 @@ files = [
     # "files/1GB.txt",    # Relatively big
 ]
 
+ns = [1, 2, 4, 8, 16, 32, 40]
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -37,7 +37,7 @@ if __name__ == "__main__":
         "--host",
         help="The IP address of the entrypoint Agent",
         default="localhost",
-        nargs=1,
+        nargs="?",
     )
 
     parser.add_argument(
@@ -45,14 +45,12 @@ if __name__ == "__main__":
         "--port",
         help="The port the entrypoint Agent is listening on",
         default=1234,
-        nargs=1,
+        nargs="?",
     )
 
     parser.add_argument(
         "-f", "--file", help="The files to be used", nargs="*"
     )
-
-    parser.add_argument("-n", help="Number of reads", default=1, type=int)
 
     parser.add_argument("-o", help="Output file (JSON)", default=None, nargs="?")
 
@@ -60,47 +58,62 @@ if __name__ == "__main__":
 
     host = args.host
     port = args.port
-    n = args.n
 
     if args.file:
         files = args.file
 
-    print("n: ", n)
-    print("files: ", files)
+    results = []
 
-    results = [["Filename", "N", "Sequential", "Batch", "Avg Batch", "Seq stats"]]
+    for n in ns:
+        for file in files:
+            print(f"Benchmarking with file: {file}")
+            res = {
+                "filename": file,
+                "n": n,
+                "sequential": {
+                    "raw": [],
+                    "mean": 0,
+                    "variance": 0,
+                    "median": 0
+                },
+                "batch": {
+                    "raw": 0,
+                    "average": 0
+                }
+            }
 
-    for file in files:
-        print(f"Benchmarking with file: {file}")
-        res = [file, n, [], 0, 0, 0]
-        try:
-            print(f"Sequential {n}:")
-            times = bench_single(n, write, args=(host, port, file))
-            res[2] = times
-            times = np.array(times)
-            res[5] = [
-                np.mean(times),np.median(times),np.var(times)
-            ]
-            print(f"Average: {np.mean(times)}s")
-            print(f"Median: {np.median(times)}s")
-            print(f"Variance: {np.var(times)}s^2")
-            print("============================")
-        except Exception as e:
-            print(f"Error while bench: {e}")
+            try:
+                print(f"Sequential {n}:")
+                times = bench_single(n, write, args=(host, port, file, file))
+                res["sequential"]["raw"] = times
+                times = np.array(times)
 
-        try:
-            print(f"Batch {n}:")
-            time = bench_batch(n, write, args=(host, port, file))
-            res[3] = time
-            res[4] = time / n
-            # times = np.array(times) / 10e9
-            print(f"Time: {time}s")
-            print(f"Avg Time: {time / n}s")
-            print("============================")
-        except Exception as e:
-            print(f"Error while bench: {e}")
+                res["sequential"]["mean"] = np.mean(times)
+                res["sequential"]["median"] = np.median(times)
+                res["sequential"]["variance"] = np.var(times)
 
-        results.append(res)
+                print(f"Average: {np.mean(times)}s")
+                print(f"Median: {np.median(times)}s")
+                print(f"Variance: {np.var(times)}s^2")
+                print("============================")
+            except Exception as e:
+                print(f"Error while bench: {e}")
+
+            try:
+                print(f"Batch {n}:")
+                time = bench_batch(n, funcs=[write for _ in range(n)], argss=[(host, port, file, f"write_{i}_{file}") for i in range(n)])
+                res["batch"]["raw"] = time
+                res["batch"]["average"] = time / n
+
+                print(f"Time: {time}s")
+                print(f"Avg Time: {time / n}s")
+                print("============================")
+            except Exception as e:
+                print(f"Error while bench: {e}")
+
+            results.append(res)
+
+    draw_graphs(results)
 
     if args.o:
         with open(args.o, "w") as outfile:
