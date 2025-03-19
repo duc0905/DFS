@@ -20,11 +20,27 @@ enum class FileType : uint8_t {
   None
 };
 
+class Agent {
+ public:
+  Agent(uint16_t id, std::string address, uint16_t port)
+      : m_id(id),
+        m_address(address),
+        m_port(port),
+        m_conn(httplib::Client(address, port)) {}
+
+ public:
+  uint16_t m_id;
+  std::string m_address;
+  uint16_t m_port;
+  httplib::Client m_conn;
+};
+
 struct FileMetadata {
   struct Partition {
     uint64_t part_id;      // ID of the partition, unique within a file
     uint16_t agent_id;     // ID of the node containing the partition
     std::string filepath;  // filepath on the node
+    uint64_t size;         // Max size for this partition
   };
 
   std::string filepath;  // Absolute filepath of this DFS
@@ -42,13 +58,16 @@ struct FileMetadata {
 inline void to_json(json& j, const FileMetadata::Partition& p) {
   j = json{{"part_id", p.part_id},
            {"node_id", p.agent_id},
-           {"filepath", p.filepath}};
+           {"filepath", p.filepath},
+           {"size", p.size}
+  };
 }
 
 inline void from_json(const json& j, FileMetadata::Partition& p) {
   j.at("part_id").get_to(p.part_id);
   j.at("node_id").get_to(p.agent_id);
   j.at("filepath").get_to(p.filepath);
+  j.at("size").get_to(p.size);
 }
 
 inline void to_json(json& j, const FileMetadata& m) {
@@ -83,6 +102,21 @@ inline void from_json(const json& j, FileMetadata& m) {
   j.at("partitions").get_to(m.partitions);
 }
 
+inline void to_json(json& j, const Agent& a) {
+  j = json({
+    {"id", a.m_id},
+    {"address", a.m_address},
+    {"port", a.m_port}
+  });
+}
+
+inline void from_json(const json& j, Agent& a) {
+  j.at("id").get_to(a.m_id);
+  j.at("address").get_to(a.m_address);
+  j.at("port").get_to(a.m_port);
+  a.m_conn = httplib::Client(a.m_address, a.m_port);
+}
+
 struct User {
   uint64_t uid;
 };
@@ -105,17 +139,4 @@ class FileExistsException : public std::exception {
   std::string m_filepath;
 };
 
-class Agent {
- public:
-  Agent(uint16_t id, std::string address, uint16_t port)
-      : m_id(id),
-        m_address(address),
-        m_port(port),
-        m_conn(httplib::Client(address, port)) {}
 
- public:
-  uint16_t m_id;
-  std::string m_address;
-  uint16_t m_port;
-  httplib::Client m_conn;
-};

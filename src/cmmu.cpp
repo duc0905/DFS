@@ -15,16 +15,10 @@ uint part_size;
 std::vector<FileMetadata> db;
 std::vector<Agent> agents;
 
-uint16_t add_agent(std::string address, uint16_t port) {
-  uint16_t id;
-  if (agents.size() == 0) {
-    id = 1;
-  } else {
-    id = agents.back().m_id + 1;
-  }
-
-  agents.push_back({id, address, port});
-  return id;
+Agent& add_agent(std::string address, uint16_t port) {
+  static uint16_t id = 0;
+  agents.push_back({id++, address, port});
+  return agents.back();
 }
 
 uint16_t find_agent(std::string address, uint16_t port) {
@@ -46,12 +40,13 @@ FileMetadata& get_file(const User& user, const std::string& filepath) {
   throw FileDNEException(filepath);
 }
 
+static uint16_t aidx = 1;
+
 /**
  * Create a file partition
  */
 FileMetadata::Partition create_partition(const uint64_t& part_id,
                                          const std::string& content) {
-  static uint16_t aidx = 1;
   FileMetadata::Partition part;
 
   aidx = (aidx + 1) % agents.size();
@@ -67,8 +62,9 @@ FileMetadata::Partition create_partition(const uint64_t& part_id,
   auto res = a.m_conn.Post("/internal/write", items);
 
   if (res->status != 201) {
-    throw std::runtime_error(std::string(
-        "Failed to create partition ") + std::to_string(part_id) + " on agent " + std::to_string(a.m_id) + '\n');
+    throw std::runtime_error(std::string("Failed to create partition ") +
+                             std::to_string(part_id) + " on agent " +
+                             std::to_string(a.m_id) + '\n');
   }
 
   return part;
@@ -109,6 +105,37 @@ FileMetadata& get_or_create_file(const User& user,
   } catch (const FileDNEException& e) {
     return create_file(user, filepath);
   }
+}
+
+/**
+ * Create an empty partition
+ *
+ * Very empty
+ */
+FileMetadata::Partition create_partition(const uint64_t& part_id,
+                                         const uint64_t& size) {
+  auto aid = agents[aidx].m_id;
+  aidx = (aidx + 1) % agents.size();
+  return {part_id, aid, uuids::to_string(uuids::uuid_system_generator{}()),
+          size};
+}
+
+/**
+ * File malloc lol
+ */
+FileMetadata falloc(const User& user, const std::string& filepath,
+                    const uint64_t& size) {
+  FileMetadata& metadata = get_or_create_file(user, filepath);
+  metadata.size = size;
+  metadata.partitions.clear();
+
+  uint N = size / part_size;
+  for (uint64_t i = 0; i < N; i++)
+    metadata.partitions.push_back(create_partition(i, part_size));
+  if (size % part_size > 0)
+    metadata.partitions.push_back(create_partition(N, size % part_size));
+
+  return metadata;
 }
 
 FileMetadata write_file(const User& user, const std::string& filepath,
@@ -214,6 +241,40 @@ int main(int argc, char* argv[]) {
   });
 
   /**
+   * Request for partitions
+   *
+   * Request for partitions to write a file into the system
+   * Partitioning is done at the agent
+   * body: {
+   *  filename: string
+   *  filesize: uint64_t
+   * }
+   */
+  server.Post("/write/v2",
+              [](const httplib::Request& req, httplib::Response& res) {
+                // Parse the body of the request
+                json j_body;
+                uint64_t size;
+                std::string filepath;
+
+                try {
+                  j_body = json::parse(req.body);
+                  size = j_body["size"];
+                  filepath = j_body["filepath"];
+                } catch (const json::parse_error&) {
+                  res.status = httplib::StatusCode::BadRequest_400;
+                  res.set_content("Invalid body", "text/plain");
+                  return;
+                }
+
+                FileMetadata meta = falloc({0}, filepath, size);
+                json j_meta = meta;
+
+                res.status = httplib::StatusCode::Created_201;
+                res.set_content(j_meta.dump(), "application/json");
+              });
+
+  /**
    * Handles writing to a single file
    */
   server.Post(
@@ -234,6 +295,7 @@ int main(int argc, char* argv[]) {
         // content_type: content type
         // content: content
         auto& file = req.files.begin()->second;
+        std::cerr << "Receiving file: " << file.name << std::endl;
         // Passing user with uid 0 for now
         // TODO: Use content receiver instead
         auto file_metadata = write_file({0}, file.name, file.content);
@@ -277,9 +339,10 @@ int main(int argc, char* argv[]) {
         uint16_t agent_port = j_body["port"];
 
         if (find_agent(req.remote_addr, agent_port) == 0) {
-          add_agent(req.remote_addr, agent_port);
+          auto& a = add_agent(req.remote_addr, agent_port);
+          json j_a = a;
           res.status = httplib::StatusCode::Created_201;
-          res.set_content("Registered", "text/plain");
+          res.set_content(j_a.dump(), "application/json");
         } else {
           res.status = httplib::StatusCode::Created_201;
           res.set_content("Welcome back", "text/plain");
@@ -297,10 +360,7 @@ int main(int argc, char* argv[]) {
                 try {
                   json j_res = json::array();
                   for (auto& a : agents) {
-                    json agent = json::object();
-                    agent["id"] = a.m_id;
-                    agent["address"] = a.m_address;
-                    agent["port"] = a.m_port;
+                    json agent = a;
                     j_res.push_back(agent);
                   }
 

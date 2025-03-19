@@ -2,10 +2,12 @@
 
 #include <argparse/argparse.hpp>
 #include <cstdlib>
+#include <cstring>
 #include <exception>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <sstream>
 #include <stdexcept>
 
 #include "types.hpp"
@@ -13,6 +15,7 @@
 using json = nlohmann::json;
 
 std::vector<Agent> agents;
+uint64_t my_id;
 
 std::vector<Agent> get_agents(httplib::Client& cmmu) {
   auto result = cmmu.Post("/agents");
@@ -37,6 +40,17 @@ std::vector<Agent> get_agents(httplib::Client& cmmu) {
 
     return ret;
   }
+}
+
+void write_to_file(const std::filesystem::path& path,
+                   const std::string& content) {
+  std::ofstream f(path, std::ios::binary);
+  if (!f) {
+    throw new std::runtime_error("Failed to open file");
+  }
+
+  f.write(content.data(), content.size());
+  f.close();
 }
 
 int main(int argc, char* argv[]) {
@@ -121,18 +135,8 @@ int main(int argc, char* argv[]) {
     auto path = datapath / file.filename;
 
     try {
-      std::ofstream f(path, std::ios::binary);
-      if (!f) {
-        std::cerr << "File open failed" << std::endl;
-
-        res.set_content("Failed", "text/plain");
-        res.status = httplib::StatusCode::InternalServerError_500;
-        return;
-      }
-
-      f.write(file.content.data(), file.content.size());
-      f.close();
-    } catch (const std::exception& e) {
+      write_to_file(path, file.content);
+    } catch (const std::runtime_error& e) {
       std::cerr << "Error while writing content to file: " << e.what()
                 << std::endl;
       res.set_content(e.what(), "text/plain");
@@ -161,8 +165,10 @@ int main(int argc, char* argv[]) {
 
     httplib::MultipartFormDataItems item = {req.files.begin()->second};
 
+    std::cerr << "Sending: " << req.files.begin()->first << std::endl;
     auto result = cmmu.Post("/write", item);
     if (result) {
+      std::cerr << "Received: " << req.files.begin()->first << std::endl;
       res.set_content(result->body, result->get_header_value("Content-Type"));
       res.status = httplib::StatusCode::Created_201;
     } else {
@@ -171,6 +177,83 @@ int main(int argc, char* argv[]) {
       res.set_content(httplib::to_string(result.error()), "text/plain");
       res.status = httplib::StatusCode::InternalServerError_500;
     }
+  });
+
+  server.Post("/write/v2", [&cmmu, &datapath](const httplib::Request& req,
+                                              httplib::Response& res) {
+    // name, content, filename, content-type
+    auto size = req.files.size();
+
+    if (size != 1) {
+      res.status = httplib::StatusCode::BadRequest_400;
+      res.set_content("This API only allow writing to exactly 1 file",
+                      "text/plain");
+      return;
+    }
+
+    auto& file = req.files.begin()->second;
+    auto result = cmmu.Post(
+        "/write/v2",
+        json{{"size", file.content.size()}, {"filepath", file.name}}.dump(),
+        "application/json");
+
+    if (!result) {
+      res.status = httplib::StatusCode::InternalServerError_500;
+      res.set_content("Cannot send request to CMMU", "text/plain");
+      return;
+    }
+
+    if (result->status != httplib::StatusCode::Created_201) {
+      res.status = result->status;
+      res.set_content(result->body, result->file_content_content_type_);
+      return;
+    }
+
+    FileMetadata meta;
+    try {
+      meta = json::parse(result->body);
+    } catch (const std::exception& e) {
+      res.status = httplib::StatusCode::InternalServerError_500;
+      res.set_content(e.what(), "text/plain");
+      return;
+    }
+
+    bool success = true;
+    uint64_t offset = 0;
+    for (auto& part : meta.partitions) {
+      char buffer[part.size + 1];
+      memcpy(buffer, file.content.data() + offset, part.size);
+      offset += part.size;
+
+      if (part.agent_id == my_id) {
+        write_to_file(datapath / part.filepath, file.content);
+        continue;
+      }
+
+      for (auto& agent : agents) {
+        if (agent.m_id != part.agent_id) continue;
+
+        httplib::MultipartFormDataItems items{
+            {part.filepath, buffer, part.filepath, "application/octet-stream"}};
+        auto result = agent.m_conn.Post("/internal/write", items);
+        if (!result || result->status != httplib::StatusCode::Created_201) {
+          success = false;
+          break;
+        }
+      }
+      if (!success) break;
+    }
+
+    if (!success) {
+      // TODO: still returns success and try this in the background
+      res.status = httplib::StatusCode::InternalServerError_500;
+      res.set_content("Failed for some reason :(", "text/plain");
+      return;
+    }
+
+    res.status = httplib::StatusCode::Created_201;
+    res.set_content(result->body, "application/json");
+    return;
   });
 
   server.Post("/internal/read", [&datapath](const httplib::Request& req,
@@ -457,6 +540,9 @@ int main(int argc, char* argv[]) {
     } else {
       std::cerr << "Successfully registered to CMMU" << std::endl;
       std::cerr << "Body: " << result->body << std::endl;
+      json j = json::parse(result->body);
+      my_id = j["id"];
+      get_agents(cmmu);
     }
   }
 
