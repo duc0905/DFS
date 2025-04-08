@@ -5,3 +5,10 @@ data/
 **/__pycache__/
 
 compile_commands.json
+benchmark/files/*.txt
+benchmark/**/*.json
+benchmark/**/*.png
+benchmark/**/*.jpg
+benchmark/venv/
+
+scripts/hosts.txt

@@ -1,30 +1,45 @@
 import argparse
 import requests
 import numpy as np
-import matplotlib.pyplot as plt
 import json
 from common import bench_single, bench_batch
 
-def write(addr: str, port: int, file: str, filename: str):
+def write_v2(addr: str, port: int, file: str, filename: str):
+    # print(f"addr: {addr}:{port} | file: {file}")
+    try:
+        res = requests.post(
+            f"http://{addr}:{port}/write/v2", files={filename: open(file, "rb")}
+        )
+
+        if res.status_code != 201:
+            print("[Warning]: response code: ", res.status_code)
+    except:
+        exit(1)
+
+    return
+
+def write_v1(addr: str, port: int, file: str, filename: str):
     # print(f"addr: {addr}:{port} | file: {file}")
     res = requests.post(
-        f"http://{addr}:{port}/write/v2", files={filename: open(file, "rb")}
+        f"http://{addr}:{port}/write", files={filename: open(file, "rb")}
     )
 
     if res.status_code != 201:
-        print("[Warning]: response code not 201")
+        print("[Warning]: response code: ", res.status_code)
+        exit(1)
 
     return
 
 files = [
     "files/10KB.txt",   # Relatively small
+    "files/100KB.txt",   # Relatively small
     "files/1MB.txt",    # 1 chunk
     "files/10MB.txt",    # 3 chunk
-    # "files/100MB.txt",  # Multiple chunks
+    "files/100MB.txt",  # Multiple chunks
     # "files/1GB.txt",    # Relatively big
 ]
 
-ns = [1, 2, 4, 8, 16, 32, 40]
+ns = [1, 2, 4, 8, 16, 24, 32]
 
 
 if __name__ == "__main__":
@@ -84,7 +99,7 @@ if __name__ == "__main__":
 
             try:
                 print(f"Sequential {n}:")
-                times = bench_single(n, write, args=(host, port, file, file))
+                times = bench_single(n, write_v2, args=(host, port, file, file))
                 res["sequential"]["raw"] = times
                 times = np.array(times)
 
@@ -101,7 +116,7 @@ if __name__ == "__main__":
 
             try:
                 print(f"Batch {n}:")
-                time = bench_batch(n, funcs=[write for _ in range(n)], argss=[(host, port, file, f"write_{i}_{file}") for i in range(n)])
+                time = bench_batch(n, funcs=[write_v2 for _ in range(n)], argss=[(host, port, file, f"write_{i}_{file}") for i in range(n)])
                 res["batch"]["raw"] = time
                 res["batch"]["average"] = time / n
 
@@ -112,8 +127,6 @@ if __name__ == "__main__":
                 print(f"Error while bench: {e}")
 
             results.append(res)
-
-    draw_graphs(results)
 
     if args.o:
         with open(args.o, "w") as outfile:

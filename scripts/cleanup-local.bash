@@ -4,7 +4,7 @@
 pkill "(CMMU)|(Agent)"
 
 # Delete Agent files
-rm /virtual/leduc7/dfs-data/*
+rm $1/dfs-data/*
 
 # Delete CMMU files
-rm /virtual/leduc7/dfs-meta/*
+rm $1/dfs-meta/*

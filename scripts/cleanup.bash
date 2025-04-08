@@ -6,5 +6,5 @@ mapfile -t hosts < hosts.txt
 for host in ${hosts[@]}
 do
 	# Kill everything
-	ssh "${host}" "~/DFS/scripts/cleanup-local.bash"
+	ssh "${host}" "~/DFS/scripts/cleanup-local.bash $1"
 done

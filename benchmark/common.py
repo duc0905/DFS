@@ -66,9 +66,10 @@ def bench_mixed(n: int, fs: list[tuple[Callable, tuple]]) -> list[float]:
 
 files = [
     "files/10KB.txt",   # Relatively small
+    "files/100KB.txt",   # Relatively small
     "files/1MB.txt",    # 1 chunk
     "files/10MB.txt",    # 3 chunk
-    # "files/100MB.txt",  # Multiple chunks
+    "files/100MB.txt",  # Multiple chunks
     # "files/1GB.txt",    # Relatively big
 ]
 
@@ -111,7 +112,7 @@ def plot_raw(results, title, outfile):
     ax.legend(loc='center left', fancybox=True, bbox_to_anchor=(1.0, 0.5))
     plt.subplots_adjust(right=0.8)
 
-    ax.set_title()
+    ax.set_title(title)
     ax.set_xlabel("n")
     ax.set_ylabel("log(time(s))")
     fig.savefig(outfile)

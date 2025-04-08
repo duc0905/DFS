@@ -130,7 +130,6 @@ int main(int argc, char* argv[]) {
       res.status = httplib::StatusCode::BadRequest_400;
       return;
     }
-
     auto file = req.files.begin()->second;
     auto path = datapath / file.filename;
 
@@ -165,7 +164,6 @@ int main(int argc, char* argv[]) {
 
     httplib::MultipartFormDataItems item = {req.files.begin()->second};
 
-    std::cerr << "Sending: " << req.files.begin()->first << std::endl;
     auto result = cmmu.Post("/write", item);
     if (result) {
       std::cerr << "Received: " << req.files.begin()->first << std::endl;
@@ -190,6 +188,8 @@ int main(int argc, char* argv[]) {
                       "text/plain");
       return;
     }
+
+    agents = get_agents(cmmu);
 
     auto& file = req.files.begin()->second;
     auto result = cmmu.Post(
@@ -221,12 +221,14 @@ int main(int argc, char* argv[]) {
     bool success = true;
     uint64_t offset = 0;
     for (auto& part : meta.partitions) {
+      json j_part = part;
       char buffer[part.size + 1];
+
       memcpy(buffer, file.content.data() + offset, part.size);
       offset += part.size;
 
       if (part.agent_id == my_id) {
-        write_to_file(datapath / part.filepath, file.content);
+        write_to_file(datapath / part.filepath, buffer);
         continue;
       }
 
@@ -238,8 +240,8 @@ int main(int argc, char* argv[]) {
         auto result = agent.m_conn.Post("/internal/write", items);
         if (!result || result->status != httplib::StatusCode::Created_201) {
           success = false;
-          break;
         }
+        break;
       }
       if (!success) break;
     }
@@ -542,7 +544,6 @@ int main(int argc, char* argv[]) {
       std::cerr << "Body: " << result->body << std::endl;
       json j = json::parse(result->body);
       my_id = j["id"];
-      get_agents(cmmu);
     }
   }
 

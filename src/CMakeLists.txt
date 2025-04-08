@@ -18,6 +18,7 @@ set(Agent_SRC_FILES
 	"agent.cpp"
 )
 add_executable(Agent ${Agent_SRC_FILES})
+target_compile_options(Agent PRIVATE "-g")
 target_link_libraries(Agent PRIVATE httplib::httplib)
 target_link_libraries(Agent PRIVATE nlohmann_json::nlohmann_json)
 target_link_libraries(Agent PRIVATE argparse::argparse)
